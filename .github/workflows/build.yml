@@ -1,0 +1,45 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --console=plain
+
+      - name: Rename APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk carbuddy.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: carbuddy-apk
+          path: carbuddy.apk
+
+      # On main, replace the rolling "latest" release so the newest APK is always
+      # at .../releases/download/latest/carbuddy.apk — easy to open on the phone.
+      - name: Publish rolling release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest carbuddy.apk \
+            --title "Latest build" \
+            --notes "Debug build of ${GITHUB_SHA::7}. Install over the previous one; it is signed with the same key." \
+            --prerelease
