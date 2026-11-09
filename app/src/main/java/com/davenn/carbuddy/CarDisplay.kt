@@ -1,61 +1,68 @@
 package com.davenn.carbuddy
 
+import android.content.Intent
 import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
-import android.view.MotionEvent
 import androidx.car.app.AppManager
 import androidx.car.app.CarContext
+import androidx.car.app.CarToast
 import androidx.car.app.SurfaceCallback
 import androidx.car.app.SurfaceContainer
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 
 /**
- * Owns the link between Android Auto's map Surface and the virtual display.
+ * Owns the link between Android Auto's map Surface and the screen mirror.
  *
- * Android Auto gives a navigation app one Surface covering the car screen. When it
- * arrives, [DisplayService] creates a virtual display that renders straight into
- * it, so whatever runs on that display is what the car shows. Touches the car
- * reports on the surface are injected back into the same display.
+ * Android Auto gives a navigation app one Surface covering the car screen; it is
+ * handed to [Mirror], which draws the phone's screen into it. Touches the car
+ * reports on the surface are mapped back to phone-screen coordinates and replayed
+ * by [TouchService] when touch control is on.
  */
 class CarDisplay(private val carContext: CarContext) : SurfaceCallback, DefaultLifecycleObserver {
 
-    var displayId = -1
-        private set
-    var status: String = "Waiting for the car screen…"
-        private set
-
-    /** Called on the main thread whenever [status] or [displayId] changes. */
+    /** Called on the main thread whenever what the car should show changes. */
     var onChange: (() -> Unit)? = null
 
     private var container: SurfaceContainer? = null
+    private var askedThisSession = false
+    private var warnedNoTouch = false
     private val main = Handler(Looper.getMainLooper())
-    private val bridgeListener: () -> Unit = { tryCreate() }
+    private val mirrorListener: () -> Unit = { onChange?.invoke() }
+
+    val isMirroring: Boolean get() = Mirror.isRunning
 
     fun attach() {
         carContext.getCarService(AppManager::class.java).setSurfaceCallback(this)
-        ShizukuBridge.addListener(bridgeListener)
-        ShizukuBridge.bindIfAllowed()
+        Mirror.addListener(mirrorListener)
     }
 
     override fun onDestroy(owner: LifecycleOwner) {
-        ShizukuBridge.removeListener(bridgeListener)
-        release()
+        // The car disconnected: stop capturing the phone.
+        Mirror.removeListener(mirrorListener)
+        Mirror.detach()
+        ProjectionService.stop(carContext)
     }
 
     // --------------------------------------------------------- SurfaceCallback
 
     override fun onSurfaceAvailable(surfaceContainer: SurfaceContainer) {
         container = surfaceContainer
-        displayId = -1
-        tryCreate()
+        val surface = surfaceContainer.surface ?: return
+        Mirror.attach(surface, surfaceContainer.width, surfaceContainer.height, surfaceContainer.dpi)
+        // Ask once automatically when the car screen first appears; after that
+        // only when the Start button is pressed.
+        if (!Mirror.isRunning && !askedThisSession) {
+            askedThisSession = true
+            ProjectionActivity.request(carContext)
+        }
     }
 
     override fun onSurfaceDestroyed(surfaceContainer: SurfaceContainer) {
         container = null
-        release()
+        touch()?.endDrag()
+        Mirror.detach()
     }
 
     override fun onVisibleAreaChanged(visibleArea: Rect) {}
@@ -63,122 +70,94 @@ class CarDisplay(private val carContext: CarContext) : SurfaceCallback, DefaultL
 
     /** A tap on the car screen (car API level 5+), in surface pixels. */
     override fun onClick(x: Float, y: Float) {
-        val svc = ShizukuBridge.service ?: return
-        if (displayId < 0) return
-        endDrag()
-        try {
-            val down = SystemClock.uptimeMillis()
-            svc.touch(MotionEvent.ACTION_DOWN, x, y, down)
-            svc.touch(MotionEvent.ACTION_UP, x, y, down)
-        } catch (_: Exception) {}
+        val t = touch() ?: return
+        val p = toPhone(x, y) ?: return // in the black bars
+        t.tap(p.first, p.second)
     }
 
     /**
-     * A drag on the car screen. Android Auto only reports how far the finger
-     * moved since the last event, not where it is, so a virtual finger is put
-     * down in the middle of the screen and moved by the same amounts. That is
-     * enough to scroll lists and pages. The finger lifts once events stop.
+     * A drag on the car screen, as how far the finger moved since the last event
+     * (previous minus new position, as in GestureDetector). The finger lifts once
+     * events stop for [DRAG_END_MS].
      */
     override fun onScroll(distanceX: Float, distanceY: Float) {
-        val svc = ShizukuBridge.service ?: return
-        val c = container ?: return
-        if (displayId < 0) return
-        try {
-            if (dragDownTime == 0L) {
-                dragDownTime = SystemClock.uptimeMillis()
-                dragX = c.width / 2f
-                dragY = c.height / 2f
-                svc.touch(MotionEvent.ACTION_DOWN, dragX, dragY, dragDownTime)
-            }
-            // distance = previous position - new position, as in GestureDetector.
-            dragX = (dragX - distanceX).coerceIn(0f, c.width - 1f)
-            dragY = (dragY - distanceY).coerceIn(0f, c.height - 1f)
-            svc.touch(MotionEvent.ACTION_MOVE, dragX, dragY, dragDownTime)
-        } catch (_: Exception) {}
+        val t = touch() ?: return
+        val g = geometry() ?: return
+        val phone = TouchService.phoneScreenSize(carContext)
+        t.dragBy(
+            -distanceX / g.scale, -distanceY / g.scale,
+            phone.x / 2f, phone.y / 2f, phone.x - 1f, phone.y - 1f,
+        )
         main.removeCallbacks(liftFinger)
         main.postDelayed(liftFinger, DRAG_END_MS)
     }
 
-    private var dragDownTime = 0L
-    private var dragX = 0f
-    private var dragY = 0f
-    private val liftFinger = Runnable { endDrag() }
-
-    private fun endDrag() {
-        main.removeCallbacks(liftFinger)
-        if (dragDownTime == 0L) return
-        try {
-            ShizukuBridge.service?.touch(MotionEvent.ACTION_UP, dragX, dragY, dragDownTime)
-        } catch (_: Exception) {}
-        dragDownTime = 0L
-    }
+    private val liftFinger = Runnable { touch()?.endDrag() }
 
     // ----------------------------------------------------------------- actions
 
+    fun start() = ProjectionActivity.request(carContext)
+
+    fun back() {
+        touch()?.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+    }
+
+    fun home() {
+        touch()?.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME)
+    }
+
     fun launch(app: LaunchableApp): String? {
-        val svc = ShizukuBridge.service ?: return ShizukuBridge.describe()
-        if (displayId < 0) return status
+        val intent = carContext.packageManager.getLaunchIntentForPackage(app.packageName)
+            ?: return "${app.label} cannot be opened"
         return try {
-            val out = svc.launch(app.component)
+            carContext.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             Apps.markOpened(carContext, app)
-            // `am start` prints "Error:"/"Exception" lines on failure, and a
-            // "Warning:" when it only brought an existing task forward — which
-            // usually means the app is open on the phone and stayed there.
-            out.lines().firstOrNull {
-                it.contains("Error") || it.contains("Exception") || it.startsWith("Warning")
-            }
+            null
         } catch (e: Exception) {
-            "Launch failed: ${e.message}"
+            "Could not open ${app.label}: ${e.message}"
         }
-    }
-
-    fun key(keyCode: Int) {
-        if (displayId < 0) return
-        try { ShizukuBridge.service?.key(keyCode) } catch (_: Exception) {}
-    }
-
-    fun retry() {
-        ShizukuBridge.bindIfAllowed()
-        tryCreate()
     }
 
     // ---------------------------------------------------------------- internal
 
-    private fun tryCreate() {
-        val c = container
-        val surface = c?.surface
-        val svc = ShizukuBridge.service
-        when {
-            c == null || surface == null -> setStatus("Waiting for the car screen…")
-            svc == null -> setStatus(ShizukuBridge.describe())
-            displayId >= 0 -> return
-            else -> try {
-                val id = svc.createDisplay(surface, c.width, c.height, c.dpi)
-                if (id >= 0) {
-                    displayId = id
-                    val note = svc.lastError()
-                    setStatus(if (note.isEmpty()) "Running" else note)
-                } else {
-                    setStatus(svc.lastError().ifEmpty { "Could not create the display." })
-                }
-            } catch (e: Exception) {
-                setStatus("Display service error: ${e.message}")
-            }
+    /** Touch control, or null after telling the driver once that it is off. */
+    private fun touch(): TouchService? {
+        val t = TouchService.instance
+        if (t == null && !warnedNoTouch) {
+            warnedNoTouch = true
+            CarToast.makeText(
+                carContext, "Touch control is off. Turn it on in carBuddy on the phone.",
+                CarToast.LENGTH_LONG,
+            ).show()
         }
+        return t
     }
 
-    private fun release() {
-        endDrag()
-        if (displayId >= 0) {
-            try { ShizukuBridge.service?.releaseDisplay() } catch (_: Exception) {}
-        }
-        displayId = -1
-        setStatus("Waiting for the car screen…")
+    private class Geometry(val scale: Float, val offsetX: Float, val offsetY: Float)
+
+    /**
+     * How the phone screen sits inside the car screen: scaled to fit and centred,
+     * which is how Android lays out a mirrored display.
+     */
+    private fun geometry(): Geometry? {
+        val c = container ?: return null
+        val phone = TouchService.phoneScreenSize(carContext)
+        if (phone.x <= 0 || phone.y <= 0) return null
+        val scale = minOf(c.width / phone.x.toFloat(), c.height / phone.y.toFloat())
+        return Geometry(
+            scale,
+            (c.width - phone.x * scale) / 2f,
+            (c.height - phone.y * scale) / 2f,
+        )
     }
 
-    private fun setStatus(s: String) {
-        status = s
-        onChange?.invoke()
+    private fun toPhone(x: Float, y: Float): Pair<Float, Float>? {
+        val g = geometry() ?: return null
+        val phone = TouchService.phoneScreenSize(carContext)
+        val px = (x - g.offsetX) / g.scale
+        val py = (y - g.offsetY) / g.scale
+        if (px < 0 || py < 0 || px >= phone.x || py >= phone.y) return null
+        return px to py
     }
 
     private companion object {

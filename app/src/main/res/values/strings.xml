@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="touch_service_label">carBuddy touch control</string>
+    <string name="touch_service_description">Lets you tap, scroll, and press Back and Home on the Android Auto car screen while carBuddy mirrors your phone. It performs gestures only and does not read what is on the screen.</string>
+</resources>

@@ -9,12 +9,11 @@ android {
 
     defaultConfig {
         applicationId = "com.davenn.carbuddy"
-        // 29 (Android 10) is the first release that lets apps be launched onto,
-        // and input be injected into, a specific secondary display.
+        // 29 (Android 10): foreground service types, needed for screen capture.
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = 2
+        versionName = "0.2"
     }
 
     signingConfigs {
@@ -37,7 +36,6 @@ android {
     }
 
     buildFeatures {
-        aidl = true
         buildConfig = true
     }
 
@@ -56,6 +54,4 @@ kotlin {
 dependencies {
     implementation("androidx.car.app:app:1.7.0")
     implementation("androidx.core:core-ktx:1.17.0")
-    implementation("dev.rikka.shizuku:api:13.1.5")
-    implementation("dev.rikka.shizuku:provider:13.1.5")
 }

@@ -1,147 +1,78 @@
 package com.davenn.carbuddy
 
+import android.Manifest
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
-import android.view.MotionEvent
-import android.view.SurfaceHolder
-import android.view.SurfaceView
+import android.provider.Settings
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.Button
-import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Toast
 
 /**
- * Phone-side setup screen: Shizuku status, the permission grant, and a preview
- * that runs the same virtual display inside this screen, so the privileged part
- * can be tested without a car or the Desktop Head Unit.
+ * Phone-side setup: whether mirroring and touch control are on, with buttons
+ * that open the right Settings pages.
  */
 class MainActivity : Activity() {
 
-    private lateinit var statusView: TextView
-    private lateinit var grantButton: Button
-    private lateinit var previewButton: Button
-    private lateinit var openAppButton: Button
-    private lateinit var previewInfo: TextView
-    private lateinit var surfaceView: SurfaceView
+    private lateinit var mirrorStatus: TextView
+    private lateinit var mirrorButton: Button
+    private lateinit var touchStatus: TextView
+    private lateinit var touchButton: Button
+    private lateinit var restrictedButton: Button
 
-    private var previewDisplayId = -1
-    private var surfaceReady = false
-
-    private val bridgeListener: () -> Unit = { runOnUiThread { refresh() } }
+    private val mirrorListener: () -> Unit = { runOnUiThread { refresh() } }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(buildUi())
-        ShizukuBridge.addListener(bridgeListener)
-        ShizukuBridge.bindIfAllowed()
-        refresh()
+        Mirror.addListener(mirrorListener)
+        // Lets the "tap to start mirroring" notification show if the car cannot
+        // open the capture prompt directly.
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+        }
     }
 
     override fun onResume() {
         super.onResume()
-        ShizukuBridge.bindIfAllowed()
         refresh()
     }
 
     override fun onDestroy() {
-        ShizukuBridge.removeListener(bridgeListener)
-        stopPreview()
+        Mirror.removeListener(mirrorListener)
         super.onDestroy()
     }
 
     private fun refresh() {
-        val state = ShizukuBridge.state()
-        statusView.text = "Shizuku: " + ShizukuBridge.describe(state)
-        statusView.setTextColor(
-            if (state == ShizukuBridge.State.READY) Color.rgb(0x2E, 0x9E, 0x4F) else Color.rgb(0xD9, 0x6C, 0x00)
-        )
-        grantButton.visibility = when (state) {
-            ShizukuBridge.State.NEEDS_PERMISSION, ShizukuBridge.State.NOT_RUNNING -> View.VISIBLE
-            else -> View.GONE
+        if (Mirror.isRunning) {
+            mirrorStatus.text = "Mirroring: on"
+            mirrorStatus.setTextColor(GREEN)
+            mirrorButton.text = "Stop mirroring"
+        } else {
+            mirrorStatus.text = "Mirroring: off. It starts when you open carBuddy in the car."
+            mirrorStatus.setTextColor(GREY)
+            mirrorButton.text = "Start mirroring now"
         }
-        grantButton.text = if (state == ShizukuBridge.State.NOT_RUNNING) "Get Shizuku" else "Grant Shizuku access"
-        previewButton.isEnabled = state == ShizukuBridge.State.READY && surfaceReady
-        previewButton.text = if (previewDisplayId >= 0) "Stop preview" else "Start preview"
-        openAppButton.isEnabled = previewDisplayId >= 0
-    }
 
-    // ---------------------------------------------------------------- preview
-
-    private fun togglePreview() {
-        if (previewDisplayId >= 0) {
-            stopPreview()
-            refresh()
-            return
-        }
-        val svc = ShizukuBridge.service ?: return
-        val holder = surfaceView.holder
-        val w = surfaceView.width
-        val h = surfaceView.height
-        // A car-like density, so apps lay out roughly as they will in the car.
-        val dpi = 160
-        try {
-            val id = svc.createDisplay(holder.surface, w, h, dpi)
-            if (id >= 0) {
-                previewDisplayId = id
-                val note = svc.lastError()
-                previewInfo.text = "Display $id, ${w}×$h at $dpi dpi. Tap and drag inside it." +
-                    if (note.isNotEmpty()) "\n$note" else ""
-            } else {
-                previewInfo.text = svc.lastError()
-            }
-        } catch (e: Exception) {
-            previewInfo.text = "Display service error: ${e.message}"
-        }
-        refresh()
-    }
-
-    private fun stopPreview() {
-        if (previewDisplayId < 0) return
-        try { ShizukuBridge.service?.releaseDisplay() } catch (_: Exception) {}
-        previewDisplayId = -1
-        previewInfo.text = "Preview stopped."
-    }
-
-    private fun pickApp() {
-        val apps = Apps.list(this)
-        AlertDialog.Builder(this)
-            .setTitle("Open on the preview display")
-            .setItems(apps.map { it.label }.toTypedArray()) { _, i ->
-                val app = apps[i]
-                val out = try {
-                    ShizukuBridge.service?.launch(app.component) ?: "Not connected"
-                } catch (e: Exception) {
-                    "Launch failed: ${e.message}"
-                }
-                Apps.markOpened(this, app)
-                if (out.contains("Error") || out.contains("Exception") || out.contains("Warning")) {
-                    previewInfo.text = out
-                }
-            }
-            .show()
-    }
-
-    /** Forwards single-finger touches on the preview to the virtual display. */
-    private fun forwardTouch(e: MotionEvent): Boolean {
-        if (previewDisplayId < 0) return false
-        val action = when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP -> e.actionMasked
-            MotionEvent.ACTION_CANCEL -> MotionEvent.ACTION_UP
-            else -> return true
-        }
-        try {
-            ShizukuBridge.service?.touch(action, e.x, e.y, e.downTime)
-        } catch (_: Exception) {}
-        return true
+        val touchOn = TouchService.isEnabled(this)
+        touchStatus.text = if (touchOn) "Touch control: on" else
+            "Touch control: off. Optional; lets you tap and scroll on the car screen."
+        touchStatus.setTextColor(if (touchOn) GREEN else GREY)
+        touchButton.text = if (touchOn) "Accessibility settings" else "Turn on touch control"
+        // Only sideloaded apps on Android 13+ hit "restricted setting".
+        restrictedButton.visibility =
+            if (!touchOn && Build.VERSION.SDK_INT >= 33) View.VISIBLE else View.GONE
     }
 
     // --------------------------------------------------------------------- UI
@@ -157,82 +88,45 @@ class MainActivity : Activity() {
             text = "carBuddy"
             textSize = 24f
         })
+        column.addView(TextView(this).apply {
+            text = "Shows this phone's screen on the Android Auto car screen."
+            textSize = 14f
+            setPadding(0, dp(4), 0, dp(16))
+        })
 
-        statusView = TextView(this).apply {
-            textSize = 16f
-            setPadding(0, dp(8), 0, dp(8))
-        }
-        column.addView(statusView)
-
-        grantButton = Button(this).apply {
+        mirrorStatus = TextView(this).apply { textSize = 16f }
+        column.addView(mirrorStatus)
+        mirrorButton = Button(this).apply {
             setOnClickListener {
-                if (ShizukuBridge.state() == ShizukuBridge.State.NOT_RUNNING) {
-                    startActivity(
-                        Intent(Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/download/"))
-                    )
-                } else {
-                    ShizukuBridge.requestPermission()
-                }
+                if (Mirror.isRunning) ProjectionService.stop(this@MainActivity)
+                else startActivity(ProjectionActivity.intent(this@MainActivity))
             }
         }
-        column.addView(grantButton, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        column.addView(mirrorButton, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+
+        touchStatus = TextView(this).apply {
+            textSize = 16f
+            setPadding(0, dp(16), 0, 0)
+        }
+        column.addView(touchStatus)
+        touchButton = Button(this).apply {
+            setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+        }
+        column.addView(touchButton, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        restrictedButton = Button(this).apply {
+            text = "Says \"Restricted setting\"? Allow it here"
+            setOnClickListener {
+                startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+                )
+            }
+        }
+        column.addView(restrictedButton, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
 
         column.addView(TextView(this).apply {
             text = SETUP
             textSize = 14f
-            setPadding(0, dp(12), 0, dp(12))
-        })
-
-        column.addView(TextView(this).apply {
-            text = "Preview on this phone"
-            textSize = 18f
-            setPadding(0, dp(8), 0, dp(4))
-        })
-
-        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        previewButton = Button(this).apply { setOnClickListener { togglePreview() } }
-        openAppButton = Button(this).apply {
-            text = "Open app…"
-            setOnClickListener { pickApp() }
-        }
-        buttons.addView(previewButton, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-        buttons.addView(openAppButton, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-        column.addView(buttons)
-
-        previewInfo = TextView(this).apply {
-            textSize = 13f
-            text = "Shows a car-shaped virtual display here, to check the Shizuku side works."
-            setPadding(0, dp(4), 0, dp(8))
-        }
-        column.addView(previewInfo)
-
-        surfaceView = SurfaceView(this).apply {
-            setBackgroundColor(Color.TRANSPARENT)
-            holder.addCallback(object : SurfaceHolder.Callback {
-                override fun surfaceCreated(holder: SurfaceHolder) {
-                    surfaceReady = true
-                    refresh()
-                }
-
-                override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) {}
-
-                override fun surfaceDestroyed(holder: SurfaceHolder) {
-                    surfaceReady = false
-                    stopPreview()
-                    refresh()
-                }
-            })
-            setOnTouchListener { v, e ->
-                // Keep the ScrollView from stealing drags meant for the preview.
-                if (previewDisplayId >= 0) v.parent.requestDisallowInterceptTouchEvent(true)
-                forwardTouch(e)
-            }
-        }
-        // Wide car-screen shape (roughly 1920×720).
-        val frame = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
-        frame.addView(surfaceView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
-        column.addView(frame, LinearLayout.LayoutParams(MATCH_PARENT, 0).also {
-            it.height = (resources.displayMetrics.widthPixels - 2 * pad) * 3 / 8
+            setPadding(0, dp(20), 0, 0)
         })
 
         return ScrollView(this).apply {
@@ -244,10 +138,19 @@ class MainActivity : Activity() {
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     private companion object {
-        const val SETUP = """Setup
-1. Install and start Shizuku (Wireless debugging mode). Restart it after each phone reboot.
-2. Grant carBuddy access above.
-3. Android Auto: Settings → tap Version about 10 times → ⋮ → Developer settings → turn on Unknown sources.
-4. Connect to the car and open carBuddy from the app launcher. Use the grid button to pick an app."""
+        val GREEN = Color.rgb(0x2E, 0x9E, 0x4F)
+        val GREY = Color.rgb(0x80, 0x80, 0x80)
+
+        const val SETUP = """Setup (once)
+1. Android Auto: Settings → tap Version about 10 times → ⋮ → Developer settings → turn on Unknown sources.
+2. Optional, for touch: tap "Turn on touch control", pick carBuddy and switch it on. If Android says it is a restricted setting, use the button below it, then ⋮ → Allow restricted settings, and try again.
+
+Each drive
+Open carBuddy in the car and tap Start now on the phone.
+
+Tips
+• Turn the phone sideways (auto-rotate on) to fill the car screen.
+• The car shows a copy of the phone screen, so it goes black if the phone locks. carBuddy keeps the screen on while mirroring.
+• Netflix and similar apps show black: they block screen capture."""
     }
 }

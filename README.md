@@ -1,68 +1,68 @@
 # carBuddy
 
-An experiment: run ordinary phone apps on the Android Auto car screen.
+An experiment: show the phone's screen on the Android Auto car screen.
 
-carBuddy is a sideloaded Android Auto app. It does **not** screen-capture the
-phone. It creates a **separate virtual display** at the car screen's size and
-shape, and launches apps onto it. The car shows that display; the phone's own
-screen stays free.
+carBuddy is a sideloaded Android Auto app. It mirrors the phone with Android's
+own screen capture (the "Start now" prompt), so nothing else needs installing.
 
 ```
 Android Auto ──gives a navigation app──► a raw Surface covering the car screen
                                               ▲
-carBuddy (Shizuku, shell privileges) ── VirtualDisplay renders straight into it
-                                              ▲
-                     apps launched with `am start --display <id>`
+phone screen ──MediaProjection──► VirtualDisplay (mirror) renders straight into it
+
+car taps / drags ──► mapped to phone coordinates ──► TouchService (accessibility) gestures
 ```
 
 ## How it works
 
-| Piece | File | Runs as |
-|---|---|---|
-| Android Auto entry point, car screens | `CarBuddyService.kt` | the app |
-| Surface ↔ virtual display link, touch forwarding | `CarDisplay.kt` | the app |
-| Creating the display, launching apps, injecting input | `DisplayService.kt` | **shell** (uid 2000), via Shizuku |
-| Shizuku connection | `ShizukuBridge.kt` | the app |
-| Phone setup screen and on-phone preview | `MainActivity.kt` | the app |
+| Piece | File |
+|---|---|
+| Android Auto entry point, car screens | `CarBuddyService.kt` |
+| Car surface ↔ mirror link, tap/drag mapping | `CarDisplay.kt` |
+| The capture and its virtual display | `Mirror.kt` |
+| Capture prompt, foreground service, notifications | `Projection.kt` |
+| Optional touch control (gestures, Back, Home) | `TouchService.kt` |
+| Phone setup screen | `MainActivity.kt` |
 
 - **Why navigation category:** of all Android Auto app categories, only
   navigation apps get a raw `Surface` to draw on (for the map). Everything else is
   fixed templates.
-- **Why Shizuku:** a normal app may create a virtual display, but may not launch
-  *other* apps onto it or inject input. The shell user (what `adb shell` runs as)
-  may. Shizuku runs `DisplayService` as that user without root.
-- **Display flags:** on Android 13+ the display is *trusted* (other apps and the
-  system's secondary home screen can appear on it), in its *own display group*
-  (stays awake when the phone screen is off) and *always unlocked* (the lock screen
-  does not cover it). On older versions or if a flag is refused, it falls back to
-  plainer flag sets and says so.
+- **One prompt per drive:** opening carBuddy in the car shows the capture prompt
+  on the phone. If Android blocks that as a background launch, a "tap to start"
+  notification does the same. Android 14+ allows one display per approval, so the
+  display is kept for the whole drive and only its surface is swapped when the
+  car screen comes and goes. Disconnecting the car stops the capture.
+- **Layout:** Android scales the mirrored screen to fit and centres it, so a
+  portrait phone shows with black bars. Turning the phone sideways fills the car.
 - **Touch:** Android Auto reports taps (`onClick`, car API 5+) with a position,
-  but drags only as distances (`onScroll`). Taps are injected where they land.
-  Drags move a virtual finger that starts at the screen centre — enough to scroll.
+  but drags only as distances (`onScroll`). Taps are mapped through the same
+  fit-and-centre transform to phone coordinates. Drags move a virtual finger that
+  starts mid-screen, sent as one continuing accessibility stroke.
+- **Screen on:** the mirror is a copy of the phone's display, so it goes black
+  when the phone screen turns off. A screen wake lock is held while mirroring.
 
 ## Setup
 
-1. Install **Shizuku** and start it in Wireless debugging mode. It needs
-   restarting after each phone reboot.
-2. Install carBuddy and open it on the phone. Tap **Grant Shizuku access**.
-3. Optional check: **Start preview**, then **Open app…** — a car-shaped display
-   appears inside the screen. If this works, the privileged half works.
-4. Android Auto → Settings → tap **Version** ~10 times → ⋮ → **Developer
+1. Install carBuddy.
+2. Android Auto → Settings → tap **Version** ~10 times → ⋮ → **Developer
    settings** → turn on **Unknown sources**.
-5. Connect to the car, open carBuddy from the launcher. Grid button = pick an app,
-   arrow = Back, house = Home on the car display.
+3. Optional, for touch: in carBuddy tap **Turn on touch control**, choose
+   carBuddy, switch it on. On Android 13+ a sideloaded app is first blocked as a
+   "restricted setting": App info → ⋮ → **Allow restricted settings**, then retry.
+4. In the car, open carBuddy and tap **Start now** on the phone. Grid button =
+   open an app, arrow = Back, house = Home.
 
 ## Expected limits
 
-- ~30 fps and 0.1–0.3 s latency: everything still goes through Android Auto's
-  video stream to the car.
-- DRM video (Netflix etc.) will most likely be black — that needs a *secure*
-  display, which only system apps can create.
-- An app already open on the phone may come to the front **there** instead of
-  moving to the car. Close it on the phone first; the car shows a warning when
-  this happens.
-- One display at a time: starting the phone preview while the car is connected
-  takes the display away from the car.
+- ~30 fps and 0.1–0.3 s latency: everything goes through Android Auto's video
+  stream to the car.
+- DRM video (Netflix etc.) shows black: those apps block capture.
+- The phone shows the same thing as the car; it is a mirror, not a second screen.
+- Locking the phone turns the car screen black until it is unlocked.
+
+The first version used Shizuku to run apps on a separate virtual display instead
+of mirroring. It needed no capture prompt but required Shizuku, restarted
+after every reboot; it is in the git history (commit 729b69f).
 
 ## Build
 

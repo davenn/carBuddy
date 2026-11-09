@@ -6,6 +6,13 @@
     <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES" />
     <uses-permission android:name="androidx.car.app.ACCESS_SURFACE" />
 
+    <!-- Screen capture runs in a foreground service of type mediaProjection. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Keeps the phone screen on while mirroring; an off screen mirrors as black. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <!-- So the car-side app picker can list what is installed. -->
     <queries>
         <intent>
@@ -38,6 +45,32 @@
             </intent-filter>
         </activity>
 
+        <!-- Invisible; exists only to show the screen-capture prompt. -->
+        <activity
+            android:name=".ProjectionActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <service
+            android:name=".ProjectionService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
+        <service
+            android:name=".TouchService"
+            android:exported="true"
+            android:label="@string/touch_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/touch_service" />
+        </service>
+
         <service
             android:name=".CarBuddyService"
             android:exported="true">
@@ -46,14 +79,5 @@
                 <category android:name="androidx.car.app.category.NAVIGATION" />
             </intent-filter>
         </service>
-
-        <!-- Shizuku hands its binder to the app through this provider. -->
-        <provider
-            android:name="rikka.shizuku.ShizukuProvider"
-            android:authorities="${applicationId}.shizuku"
-            android:enabled="true"
-            android:exported="true"
-            android:multiprocess="false"
-            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
     </application>
 </manifest>

@@ -1,7 +1,6 @@
 package com.davenn.carbuddy
 
 import android.content.Intent
-import android.view.KeyEvent
 import androidx.car.app.CarAppService
 import androidx.car.app.CarContext
 import androidx.car.app.CarToast
@@ -39,8 +38,8 @@ class CarBuddySession : Session() {
 }
 
 /**
- * The car's main screen: a navigation template whose "map" is the virtual
- * display. The buttons float over it.
+ * The car's main screen: a navigation template whose "map" is the mirrored
+ * phone screen. The buttons float over it.
  */
 class DisplayScreen(carContext: CarContext, private val display: CarDisplay) : Screen(carContext) {
 
@@ -49,17 +48,17 @@ class DisplayScreen(carContext: CarContext, private val display: CarDisplay) : S
     }
 
     override fun onGetTemplate(): Template {
-        val running = display.displayId >= 0
+        val mirroring = display.isMirroring
 
         val actions = ActionStrip.Builder()
-        if (running) {
+        if (mirroring) {
             actions.addAction(iconAction(R.drawable.ic_apps) {
                 screenManager.push(AppsScreen(carContext, display))
             })
-            actions.addAction(iconAction(R.drawable.ic_back) { display.key(KeyEvent.KEYCODE_BACK) })
-            actions.addAction(iconAction(R.drawable.ic_home) { display.key(KeyEvent.KEYCODE_HOME) })
+            actions.addAction(iconAction(R.drawable.ic_back) { display.back() })
+            actions.addAction(iconAction(R.drawable.ic_home) { display.home() })
         } else {
-            actions.addAction(iconAction(R.drawable.ic_refresh) { display.retry() })
+            actions.addAction(iconAction(R.drawable.ic_play) { display.start() })
         }
 
         val builder = NavigationTemplate.Builder()
@@ -69,10 +68,11 @@ class DisplayScreen(carContext: CarContext, private val display: CarDisplay) : S
             .setMapActionStrip(ActionStrip.Builder().addAction(Action.PAN).build())
             .setPanModeListener { }
 
-        val status = display.status
-        if (!running || status != "Running") {
+        if (!mirroring) {
             builder.setNavigationInfo(
-                MessageInfo.Builder("carBuddy").setText(status).build()
+                MessageInfo.Builder("Tap Start now on your phone")
+                    .setText("Not showing? Press the play button here.")
+                    .build()
             )
         }
         return builder.build()
