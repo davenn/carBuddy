@@ -80,7 +80,8 @@
             android:name=".BrowserActivity"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize"
             android:exported="false"
-            android:label="carBuddy browser" />
+            android:label="carBuddy browser"
+            android:windowSoftInputMode="adjustResize" />
 
         <!-- Invisible; exists only to show the screen-capture prompt. -->
         <activity

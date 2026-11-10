@@ -41,9 +41,13 @@ import androidx.webkit.WebViewFeature
  *
  * Used on the car screen ([CarScreen]) and on the phone ([BrowserActivity]),
  * which share one cookie store, so signing in on the phone also signs in the car.
+ * The two get different layouts: on the car, large buttons down the side of a
+ * short, wide screen; on the phone ([phone] = true), a slim toolbar on top and
+ * one site per row, for signing in.
  */
 class StreamingBrowser(
     private val activity: Activity,
+    private val phone: Boolean = false,
     private val onClose: () -> Unit,
 ) {
 
@@ -52,12 +56,18 @@ class StreamingBrowser(
     private lateinit var sitesPanel: LinearLayout
     private lateinit var address: EditText
     private var web: WebView? = null
+    private var pageTitle: TextView? = null
+
+    /** Phone only: present as desktop Chrome, as the car does. Off = the phone's own mobile pages. */
+    private var desktopSite = true
 
     private var fullscreenView: View? = null
     private var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
     private lateinit var exitFullscreen: ImageButton
 
     fun create(): View {
+        if (phone) return createPhone()
+
         val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
         row.addView(LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -73,14 +83,48 @@ class StreamingBrowser(
 
         sitesPanel = buildSitesPanel()
         content.addView(sitesPanel, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        addFullscreenExit()
+        return root
+    }
 
+    /** Phone layout: a slim toolbar above the page, sized for one hand. */
+    private fun createPhone(): View {
+        val column = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        column.addView(LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(0xFF1E1E1E.toInt())
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+            addView(toolButton(R.drawable.ic_back, "Back") { if (!back()) onClose() })
+            pageTitle = TextView(activity).apply {
+                textSize = 15f
+                setTextColor(Color.WHITE)
+                isSingleLine = true
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setPadding(dp(8), 0, dp(8), 0)
+                text = "Sign in"
+            }
+            addView(pageTitle, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            addView(toolButton(R.drawable.ic_apps, "Sites") { showSites(true) })
+            addView(toolButton(R.drawable.ic_refresh, "Reload") { web?.reload() })
+            addView(toolButton(R.drawable.ic_close, "Close") { onClose() })
+        }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        column.addView(content, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+        root.addView(column, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+
+        sitesPanel = buildPhoneSitesPanel()
+        content.addView(sitesPanel, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        addFullscreenExit()
+        return root
+    }
+
+    private fun addFullscreenExit() {
         exitFullscreen = iconButton(R.drawable.ic_close, "Exit full screen") { leaveFullscreen() }.apply {
             visibility = View.GONE
             alpha = 0.6f
         }
         root.addView(exitFullscreen, FrameLayout.LayoutParams(dp(56), dp(56), Gravity.TOP or Gravity.START)
             .also { it.setMargins(dp(12), dp(12), 0, 0) })
-        return root
     }
 
     fun destroy() {
@@ -125,21 +169,7 @@ class StreamingBrowser(
         settings.loadWithOverviewMode = true
         settings.builtInZoomControls = true
         settings.displayZoomControls = false
-        settings.userAgentString = desktopUserAgent(settings.userAgentString)
-        // Keep the client hints consistent with the user agent: sites read both.
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) {
-            WebSettingsCompat.setUserAgentMetadata(
-                settings,
-                UserAgentMetadata.Builder()
-                    .setPlatform("Linux")
-                    .setPlatformVersion("")
-                    .setMobile(false)
-                    .setArchitecture("x86")
-                    .setBitness(64)
-                    .setModel("")
-                    .build(),
-            )
-        }
+        if (desktopSite) applyDesktopIdentity(this)
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
@@ -149,6 +179,10 @@ class StreamingBrowser(
                 // in the browser: those apps are blocked on the car screen.
                 val scheme = request.url.scheme ?: return false
                 return scheme != "http" && scheme != "https"
+            }
+
+            override fun onPageFinished(view: WebView, url: String?) {
+                pageTitle?.text = view.title?.takeIf { it.isNotBlank() } ?: hostOf(url)
             }
 
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
@@ -192,6 +226,39 @@ class StreamingBrowser(
                 exitFullscreen.visibility = View.GONE
             }
         }
+    }
+
+    /** Present as desktop Chrome on Linux: streaming sites send phones to their apps. */
+    private fun applyDesktopIdentity(w: WebView) {
+        w.settings.userAgentString = desktopUserAgent(w.settings.userAgentString)
+        // Keep the client hints consistent with the user agent: sites read both.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) {
+            WebSettingsCompat.setUserAgentMetadata(
+                w.settings,
+                UserAgentMetadata.Builder()
+                    .setPlatform("Linux")
+                    .setPlatformVersion("")
+                    .setMobile(false)
+                    .setArchitecture("x86")
+                    .setBitness(64)
+                    .setModel("")
+                    .build(),
+            )
+        }
+    }
+
+    /** Phone only: switch between desktop and mobile pages; reloads the current page. */
+    private fun setDesktopSite(on: Boolean) {
+        if (on == desktopSite) return
+        desktopSite = on
+        val w = web ?: return
+        // Simplest reliable way to drop the old identity: start a fresh WebView.
+        // Cookies and site storage are shared, so sign-ins carry over.
+        val url = w.url
+        content.removeView(w)
+        w.destroy()
+        web = null
+        if (url != null && url != "about:blank") open(url)
     }
 
     private fun leaveFullscreen() {
@@ -266,8 +333,73 @@ class StreamingBrowser(
         )
     }
 
+    /** Phone sites panel: one site per row, full width, with an explanation. */
+    private fun buildPhoneSitesPanel(): LinearLayout {
+        val column = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+        }
+        column.addView(TextView(activity).apply {
+            text = "Sign in to streaming sites"
+            textSize = 22f
+            setTextColor(Color.WHITE)
+        })
+        column.addView(TextView(activity).apply {
+            text = "Sign in here once. The car's Streaming screen uses the same sign-in."
+            textSize = 15f
+            setTextColor(Color.LTGRAY)
+            setPadding(0, dp(6), 0, dp(12))
+        })
+        for ((name, url) in SITES) {
+            column.addView(Button(activity).apply {
+                text = name
+                textSize = 18f
+                isAllCaps = false
+                setOnClickListener { open(url) }
+            }, LinearLayout.LayoutParams(MATCH_PARENT, dp(56)).also { it.setMargins(0, dp(4), 0, dp(4)) })
+        }
+
+        address = EditText(activity).apply {
+            hint = "Or type a web address"
+            textSize = 16f
+            isSingleLine = true
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.GRAY)
+            imeOptions = EditorInfo.IME_ACTION_GO
+            inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI
+            setOnEditorActionListener { _, _, _ -> go(); true }
+        }
+        column.addView(LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(12), 0, 0)
+            addView(address, LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
+            addView(Button(activity).apply {
+                text = "Go"
+                setOnClickListener { go() }
+            })
+        })
+
+        column.addView(android.widget.Switch(activity).apply {
+            text = "Desktop site (matches the car; turn off if pages are too small)"
+            textSize = 15f
+            setTextColor(Color.LTGRAY)
+            isChecked = desktopSite
+            setPadding(0, dp(16), 0, 0)
+            setOnCheckedChangeListener { _, on -> setDesktopSite(on) }
+        }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+
+        return LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(0xFF101010.toInt())
+            addView(android.widget.ScrollView(activity).apply { addView(column) },
+                LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        }
+    }
+
     private fun showSites(show: Boolean) {
         sitesPanel.visibility = if (show) View.VISIBLE else View.GONE
+        if (show) pageTitle?.text = "Sign in"
     }
 
     // ---------------------------------------------------------------- helpers
@@ -285,6 +417,21 @@ class StreamingBrowser(
         setOnClickListener { onClick() }
         layoutParams = LinearLayout.LayoutParams(dp(64), dp(64)).also { it.setMargins(0, dp(6), 0, dp(6)) }
     }
+
+    /** Phone toolbar button: 48dp touch target, plain background. */
+    private fun toolButton(icon: Int, label: String, onClick: () -> Unit) = ImageButton(activity).apply {
+        setImageResource(icon)
+        contentDescription = label
+        setBackgroundColor(Color.TRANSPARENT)
+        val pad = dp(12)
+        setPadding(pad, pad, pad, pad)
+        scaleType = ImageView.ScaleType.FIT_CENTER
+        setOnClickListener { onClick() }
+        layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
+    }
+
+    private fun hostOf(url: String?): String =
+        url?.let { android.net.Uri.parse(it).host } ?: ""
 
     private fun dp(v: Int) = (v * activity.resources.displayMetrics.density).toInt()
 
