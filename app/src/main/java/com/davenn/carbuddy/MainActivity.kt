@@ -13,6 +13,7 @@ import android.view.Display
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.view.Window
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -40,6 +41,9 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (onCarScreen()) {
+            // No title bar on the car: the screen is short, and the bar sat over
+            // the mirror and the browser.
+            requestWindowFeature(Window.FEATURE_NO_TITLE)
             carScreen = CarScreen(this).also { setContentView(it.create()) }
             return
         }
