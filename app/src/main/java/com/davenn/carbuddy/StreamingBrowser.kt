@@ -165,6 +165,9 @@ class StreamingBrowser(
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.mediaPlaybackRequiresUserGesture = false
+        // Secure pages may still pull a few plain-http images or map tiles; show
+        // those rather than leaving holes, as Chrome does.
+        settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         settings.useWideViewPort = true
         settings.loadWithOverviewMode = true
         settings.builtInZoomControls = true

@@ -38,7 +38,12 @@
         android:isGame="true"
         android:label="carBuddy"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.DeviceDefault.DayNight">
+        android:theme="@android:style/Theme.DeviceDefault.DayNight"
+        android:usesCleartextTraffic="true">
+        <!-- usesCleartextTraffic: the browser must open plain http:// pages too
+             (some parking and charger maps still use them); Android blocks them
+             by default with ERR_CLEARTEXT_NOT_PERMITTED. Typed addresses still
+             default to https://. The browser is the app's only network use. -->
 
         <!-- Setup on the phone, the mirror on the car screen (see MainActivity).
              configChanges keeps it from restarting when the car display changes. -->
