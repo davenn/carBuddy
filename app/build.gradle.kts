@@ -10,10 +10,11 @@ android {
     defaultConfig {
         applicationId = "com.davenn.carbuddy"
         // 29 (Android 10): foreground service types, needed for screen capture.
+        // Android Auto's parked apps themselves need Android 15+ on the phone.
         minSdk = 29
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2"
+        versionCode = 3
+        versionName = "0.3"
     }
 
     signingConfigs {
@@ -51,7 +52,3 @@ kotlin {
     }
 }
 
-dependencies {
-    implementation("androidx.car.app:app:1.7.0")
-    implementation("androidx.core:core-ktx:1.17.0")
-}

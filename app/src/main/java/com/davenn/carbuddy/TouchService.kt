@@ -12,7 +12,7 @@ import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 
 /**
- * Optional touch control: replays taps and drags from the car screen on the
+ * Optional touch control: replays touches on carBuddy's car screen on the
  * phone, and presses Back/Home. An accessibility service is the only way a
  * regular app can do this, and the user switches it on once in Settings.
  *
@@ -32,24 +32,15 @@ class TouchService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
     override fun onInterrupt() {}
 
-    fun tap(x: Float, y: Float) {
-        endDrag()
-        val path = Path().apply { moveTo(x, y) }
-        dispatchGesture(
-            GestureDescription.Builder()
-                .addStroke(GestureDescription.StrokeDescription(path, 0, TAP_MS))
-                .build(),
-            null, null,
-        )
-    }
-
-    // ------------------------------------------------------------------ drags
+    // ---------------------------------------------------------------- strokes
     //
-    // Android Auto reports a drag as a series of "moved by" amounts with no start
-    // position, so the finger is put down mid-screen and moved by those amounts.
-    // A gesture is sent as one continuing stroke, one segment at a time: each new
-    // segment goes out when the previous one finishes, heading to wherever the
-    // finger should be by then, so the stroke never falls behind the car.
+    // A finger on the car screen becomes one continuing gesture stroke on the
+    // phone, sent a short segment at a time: each segment goes out when the
+    // previous one finishes, heading to wherever the finger is by then. A quick
+    // tap becomes a ~30 ms stroke, a held finger a long-press, a drag a swipe.
+    //
+    // Each gesture gets a generation number, so callbacks from a gesture that a
+    // newer one has replaced are ignored.
 
     private var stroke: GestureDescription.StrokeDescription? = null
     private var fingerX = 0f
@@ -58,23 +49,29 @@ class TouchService : AccessibilityService() {
     private var targetY = 0f
     private var inFlight = false
     private var ending = false
+    private var generation = 0
 
-    fun dragBy(dx: Float, dy: Float, startX: Float, startY: Float, maxX: Float, maxY: Float) {
-        if (stroke == null && !inFlight) {
-            fingerX = startX
-            fingerY = startY
-            targetX = startX
-            targetY = startY
-            ending = false
-            val path = Path().apply { moveTo(startX, startY) }
-            send(GestureDescription.StrokeDescription(path, 0, SEGMENT_MS, true))
-        }
-        targetX = (targetX + dx).coerceIn(0f, maxX)
-        targetY = (targetY + dy).coerceIn(0f, maxY)
+    /** Finger down at (x, y) in phone-screen pixels. */
+    fun begin(x: Float, y: Float) {
+        generation++
+        fingerX = x
+        fingerY = y
+        targetX = x
+        targetY = y
+        ending = false
+        val path = Path().apply { moveTo(x, y) }
+        send(GestureDescription.StrokeDescription(path, 0, SEGMENT_MS, true))
     }
 
-    fun endDrag() {
-        if (stroke == null && !inFlight) return
+    /** Finger moved to (x, y). */
+    fun moveTo(x: Float, y: Float) {
+        targetX = x
+        targetY = y
+    }
+
+    /** Finger lifted. */
+    fun end() {
+        if (stroke == null) return
         ending = true
         if (!inFlight) sendNext()
     }
@@ -87,26 +84,33 @@ class TouchService : AccessibilityService() {
         }
         fingerX = targetX
         fingerY = targetY
-        val willContinue = !ending
-        val next = prev.continueStroke(path, 0, SEGMENT_MS, willContinue)
-        if (willContinue) send(next) else {
+        if (ending) {
             stroke = null
-            dispatchGesture(GestureDescription.Builder().addStroke(next).build(), null, null)
+            dispatchGesture(
+                GestureDescription.Builder()
+                    .addStroke(prev.continueStroke(path, 0, SEGMENT_MS, false)).build(),
+                null, null,
+            )
+        } else {
+            send(prev.continueStroke(path, 0, SEGMENT_MS, true))
         }
     }
 
     private fun send(s: GestureDescription.StrokeDescription) {
+        val gen = generation
         stroke = s
         inFlight = true
         val ok = dispatchGesture(
             GestureDescription.Builder().addStroke(s).build(),
             object : GestureResultCallback() {
                 override fun onCompleted(gestureDescription: GestureDescription?) {
+                    if (gen != generation) return
                     inFlight = false
                     sendNext()
                 }
 
                 override fun onCancelled(gestureDescription: GestureDescription?) {
+                    if (gen != generation) return
                     inFlight = false
                     stroke = null
                 }
@@ -120,7 +124,6 @@ class TouchService : AccessibilityService() {
     }
 
     companion object {
-        private const val TAP_MS = 40L
         private const val SEGMENT_MS = 16L
 
         /** The running service, or null when touch control is switched off. */

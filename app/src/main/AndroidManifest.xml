@@ -1,10 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Navigation apps are the only Android Auto category given a raw Surface
-         on the car screen. carBuddy declares itself one to get that Surface. -->
-    <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES" />
-    <uses-permission android:name="androidx.car.app.ACCESS_SURFACE" />
+    <!--
+      carBuddy is an Android Auto "parked app": an ordinary activity that Android
+      Auto shows on the car screen while parked, on a display of the car screen's
+      size. Current Android Auto rejects sideloaded Car App Library apps even with
+      Unknown sources on, but accepts apps declared this way: the game category,
+      CAR_LAUNCHER on the launcher activity, and automotive hardware optional.
+      Only carBuddy itself may run there; Android Auto blocks other apps on that
+      display, so carBuddy shows them through a mirror of the phone instead.
+    -->
+    <uses-feature android:name="android.hardware.type.automotive" android:required="false" />
 
     <!-- Screen capture runs in a foreground service of type mediaProjection. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -13,7 +19,7 @@
     <!-- Keeps the phone screen on while mirroring; an off screen mirrors as black. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
-    <!-- So the car-side app picker can list what is installed. -->
+    <!-- So the car-side app list can show what is installed. -->
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
@@ -24,24 +30,23 @@
     <application
         android:name=".CarBuddyApp"
         android:allowBackup="false"
+        android:appCategory="game"
         android:icon="@mipmap/ic_launcher"
+        android:isGame="true"
         android:label="carBuddy"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.DeviceDefault.DayNight">
 
-        <meta-data
-            android:name="com.google.android.gms.car.application"
-            android:resource="@xml/automotive_app_desc" />
-        <meta-data
-            android:name="androidx.car.app.minCarApiLevel"
-            android:value="1" />
-
+        <!-- Setup on the phone, the mirror on the car screen (see MainActivity).
+             configChanges keeps it from restarting when the car display changes. -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|uiMode"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.CAR_LAUNCHER" />
             </intent-filter>
         </activity>
 
@@ -69,15 +74,6 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/touch_service" />
-        </service>
-
-        <service
-            android:name=".CarBuddyService"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="androidx.car.app.CarAppService" />
-                <category android:name="androidx.car.app.category.NAVIGATION" />
-            </intent-filter>
         </service>
     </application>
 </manifest>

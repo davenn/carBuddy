@@ -2,13 +2,11 @@ package com.davenn.carbuddy
 
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
-import androidx.core.graphics.drawable.toBitmap
 
-/** An installed app that can be opened on the car display. */
+/** An installed app that can be opened from the car screen. */
 data class LaunchableApp(val label: String, val component: String, val packageName: String)
 
-/** Lists launchable apps, most recently opened on the car first. */
+/** Lists launchable apps, most recently opened from the car first. */
 object Apps {
 
     private const val PREFS = "carbuddy"
@@ -32,12 +30,6 @@ object Apps {
 
         val recent = recent(context)
         return all.sortedBy { app -> recent.indexOf(app.component).let { if (it < 0) Int.MAX_VALUE else it } }
-    }
-
-    fun icon(context: Context, app: LaunchableApp, sizePx: Int = 96): Bitmap? = try {
-        context.packageManager.getApplicationIcon(app.packageName).toBitmap(sizePx, sizePx)
-    } catch (_: Exception) {
-        null
     }
 
     fun markOpened(context: Context, app: LaunchableApp) {

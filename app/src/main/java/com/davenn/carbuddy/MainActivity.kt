@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.Display
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
@@ -18,10 +19,15 @@ import android.widget.ScrollView
 import android.widget.TextView
 
 /**
- * Phone-side setup: whether mirroring and touch control are on, with buttons
- * that open the right Settings pages.
+ * carBuddy's only activity, with two faces:
+ *  - on the car screen (Android Auto runs it there as a parked app, on its own
+ *    display), it is the mirror itself: see [CarScreen];
+ *  - on the phone, it is setup: whether mirroring and touch control are on, with
+ *    buttons that open the right Settings pages.
  */
 class MainActivity : Activity() {
+
+    private var carScreen: CarScreen? = null
 
     private lateinit var mirrorStatus: TextView
     private lateinit var mirrorButton: Button
@@ -33,6 +39,10 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (onCarScreen()) {
+            carScreen = CarScreen(this).also { setContentView(it.create()) }
+            return
+        }
         setContentView(buildUi())
         Mirror.addListener(mirrorListener)
         // Lets the "tap to start mirroring" notification show if the car cannot
@@ -46,12 +56,22 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        refresh()
+        if (carScreen == null) refresh()
     }
 
     override fun onDestroy() {
+        carScreen?.destroy()
         Mirror.removeListener(mirrorListener)
         super.onDestroy()
+    }
+
+    /** True when Android Auto is showing this activity on the car's display. */
+    private fun onCarScreen(): Boolean {
+        val d = if (Build.VERSION.SDK_INT >= 30) display else {
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay
+        }
+        return d != null && d.displayId != Display.DEFAULT_DISPLAY
     }
 
     private fun refresh() {
@@ -60,7 +80,7 @@ class MainActivity : Activity() {
             mirrorStatus.setTextColor(GREEN)
             mirrorButton.text = "Stop mirroring"
         } else {
-            mirrorStatus.text = "Mirroring: off. It starts when you open carBuddy in the car."
+            mirrorStatus.text = "Mirroring: off. Open carBuddy in the car and press Start."
             mirrorStatus.setTextColor(GREY)
             mirrorButton.text = "Start mirroring now"
         }
@@ -89,7 +109,7 @@ class MainActivity : Activity() {
             textSize = 24f
         })
         column.addView(TextView(this).apply {
-            text = "Shows this phone's screen on the Android Auto car screen."
+            text = "Shows this phone's screen on the Android Auto car screen while parked."
             textSize = 14f
             setPadding(0, dp(4), 0, dp(16))
         })
@@ -145,12 +165,13 @@ class MainActivity : Activity() {
 1. Android Auto: Settings → tap Version about 10 times → ⋮ → Developer settings → turn on Unknown sources.
 2. Optional, for touch: tap "Turn on touch control", pick carBuddy and switch it on. If Android says it is a restricted setting, use the button below it, then ⋮ → Allow restricted settings, and try again.
 
-Each drive
-Open carBuddy in the car and tap Start now on the phone.
+Each time
+While parked, open carBuddy from Android Auto's launcher (it may be with games or parked apps), press Start, and tap Start now on the phone.
 
 Tips
 • Turn the phone sideways (auto-rotate on) to fill the car screen.
-• The car shows a copy of the phone screen, so it goes black if the phone locks. carBuddy keeps the screen on while mirroring.
-• Netflix and similar apps show black: they block screen capture."""
+• Use the apps button on the car screen to open phone apps; they open on the phone and show in the mirror.
+• Parked only: Android Auto closes parked apps when the car moves.
+• Netflix, Disney+ and similar apps show black: they block screen capture."""
     }
 }

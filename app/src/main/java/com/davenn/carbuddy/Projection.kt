@@ -1,6 +1,7 @@
 package com.davenn.carbuddy
 
 import android.app.Activity
+import android.app.ActivityOptions
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -14,6 +15,7 @@ import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.view.Display
 
 /**
  * Asks for screen-capture permission. Android only shows that prompt from an
@@ -58,15 +60,20 @@ class ProjectionActivity : Activity() {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
 
         /**
-         * Shows the prompt on the phone. Called from the car, where Android may
-         * block the launch as a background start, so a notification that does
-         * the same thing is posted as well.
+         * Shows the prompt on the phone. When called from carBuddy's car screen,
+         * the prompt must be sent to the phone's own display: Android Auto blocks
+         * anything that is not a car app on the car display. If the launch fails
+         * anyway, a notification on the phone does the same thing.
          */
         fun request(context: Context) {
             try {
-                context.startActivity(intent(context))
-            } catch (_: Exception) {}
-            Notifications.showStartPrompt(context)
+                context.startActivity(
+                    intent(context),
+                    ActivityOptions.makeBasic().setLaunchDisplayId(Display.DEFAULT_DISPLAY).toBundle(),
+                )
+            } catch (_: Exception) {
+                Notifications.showStartPrompt(context)
+            }
         }
     }
 }
