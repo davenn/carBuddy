@@ -195,6 +195,7 @@ Tips
 • Turn the phone sideways (auto-rotate on) to fill the car screen.
 • Use the apps button on the car screen to open phone apps; they open on the phone and show in the mirror.
 • Parked only: Android Auto closes parked apps when the car moves.
+• Clock is a separate entry in Android Auto's launcher: a plain clock, the one carBuddy screen meant to stay up while driving.
 • Netflix, Disney+ and similar apps show black in the mirror: they block screen capture. Use Streaming for those instead."""
     }
 }

@@ -53,6 +53,28 @@
             </intent-filter>
         </activity>
 
+        <!-- carBuddy Clock: the only screen declared distraction-optimised, so the
+             only one meant to stay up while driving. It shows the time and date
+             and nothing else, has nothing to operate, and runs in its own task so
+             it cannot lead to the parked-only mirror or browser above. Keep it
+             that way: anything added here must still meet in-car distraction
+             guidelines, or this flag must come off. -->
+        <activity
+            android:name=".ClockActivity"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|density|uiMode"
+            android:exported="true"
+            android:label="Clock"
+            android:taskAffinity="com.davenn.carbuddy.clock">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.CAR_LAUNCHER" />
+            </intent-filter>
+            <meta-data
+                android:name="distractionOptimized"
+                android:value="true" />
+        </activity>
+
         <!-- The streaming browser on the phone, mainly for signing in. -->
         <activity
             android:name=".BrowserActivity"

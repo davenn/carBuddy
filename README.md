@@ -48,6 +48,19 @@ straight to whatever display carBuddy is on.
 - Whether video actually plays depends on the car display accepting protected
   video. The home panel shows the display's flags (secure / protected video).
 
+## Clock (for driving)
+
+Android Auto closes parked apps once the car moves. **Clock** (`ClockActivity`)
+is a separate launcher entry declared distraction-optimised, the Android flag for
+screens that meet in-car distraction guidelines, so it is the one carBuddy screen
+meant to stay up while driving. To keep that true it shows only the time, the
+date and a line filling as the hour passes; it changes once a minute, has nothing
+to operate, and runs in its own task with no way into the mirror or browser.
+Styled after davenn.com: near-black, DM Mono (bundled under the SIL Open Font
+License, `third_party/DM-Mono-OFL.txt`), and the davenn/dotcom mark.
+
+Whether Android Auto honours the flag for a sideloaded app is still to be tested.
+
 ## How it works
 
 | Piece | File |
@@ -55,6 +68,7 @@ straight to whatever display carBuddy is on.
 | The one activity: setup on the phone, the mirror on the car display | `MainActivity.kt` |
 | Car screen: home panel, mirror surface, touch mapping, buttons, app list | `CarScreen.kt` |
 | Streaming browser (car screen and phone) | `StreamingBrowser.kt`, `BrowserActivity.kt` |
+| Clock, the driving-safe screen | `ClockActivity.kt` |
 | The capture and its virtual display | `Mirror.kt` |
 | Capture prompt, foreground service, notifications | `Projection.kt` |
 | Optional touch control (gestures, Back, Home) | `TouchService.kt` |
