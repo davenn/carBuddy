@@ -1,7 +1,7 @@
 # carBuddy
 
-An experiment: show the phone's screen on the Android Auto car screen while
-parked.
+An experiment: show the phone's screen, and streaming services, on the Android
+Auto car screen while parked.
 
 carBuddy is a sideloaded Android Auto **parked app**: an ordinary activity that
 Android Auto runs on the car screen while the car is parked. Its car screen shows
@@ -31,12 +31,30 @@ there shows "This can't be accessed on your Android Auto at this time". So other
 apps are reached through the mirror: the car screen's apps button opens them on
 the phone, and the mirror shows them.
 
+## Streaming
+
+Netflix, Disney+ and other DRM apps show black in the mirror: protected video is
+only drawn on secure displays, and a screen capture never is one. Their apps
+cannot run on the car display either (Android Auto blocks them). So carBuddy's
+car screen also has a **Streaming** browser: the services' own web players run
+inside carBuddy, decrypt with the phone's Widevine through WebView, and draw
+straight to whatever display carBuddy is on.
+
+- It presents itself as desktop Chrome on Linux (user agent and client hints),
+  because streaming sites send phones to their apps instead of playing.
+- It grants only protected-media (Widevine) permission requests.
+- Sign in once with **Sign in to streaming sites** on the phone; the car shares
+  the same cookies.
+- Whether video actually plays depends on the car display accepting protected
+  video. The home panel shows the display's flags (secure / protected video).
+
 ## How it works
 
 | Piece | File |
 |---|---|
 | The one activity: setup on the phone, the mirror on the car display | `MainActivity.kt` |
-| Car screen: mirror surface, touch mapping, buttons, app list | `CarScreen.kt` |
+| Car screen: home panel, mirror surface, touch mapping, buttons, app list | `CarScreen.kt` |
+| Streaming browser (car screen and phone) | `StreamingBrowser.kt`, `BrowserActivity.kt` |
 | The capture and its virtual display | `Mirror.kt` |
 | Capture prompt, foreground service, notifications | `Projection.kt` |
 | Optional touch control (gestures, Back, Home) | `TouchService.kt` |
@@ -63,14 +81,17 @@ the phone, and the mirror shows them.
 3. Optional, for touch: in carBuddy tap **Turn on touch control**, choose
    carBuddy, switch it on. On Android 13+ a sideloaded app is first blocked as a
    "restricted setting": App info → ⋮ → **Allow restricted settings**, then retry.
-4. While parked, open carBuddy from Android Auto's launcher, press **Start**, and
-   tap **Start now** on the phone. Side buttons: Back, Home, Apps, Stop.
+4. Optional, for streaming: **Sign in to streaming sites** on the phone.
+5. While parked, open carBuddy from Android Auto's launcher and choose **Mirror
+   phone** (then tap **Start now** on the phone; side buttons: Back, Home, Apps,
+   Stop) or **Streaming**.
 
 ## Expected limits
 
 - Parked only: Android Auto closes parked apps when the car moves.
 - ~30 fps and some latency: everything goes through Android Auto's video stream.
-- DRM video (Netflix, Disney+ etc.) shows black: those apps block capture.
+- DRM video (Netflix, Disney+ etc.) shows black in the mirror; use Streaming.
+- Streaming sites may refuse an embedded browser or cap quality (often 720p).
 - The phone shows the same thing as the car; it is a mirror, not a second screen.
 - Locking the phone turns the mirror black until it is unlocked.
 

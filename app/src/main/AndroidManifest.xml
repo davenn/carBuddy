@@ -12,6 +12,9 @@
     -->
     <uses-feature android:name="android.hardware.type.automotive" android:required="false" />
 
+    <!-- The streaming browser. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Screen capture runs in a foreground service of type mediaProjection. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
@@ -49,6 +52,13 @@
                 <category android:name="android.intent.category.CAR_LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- The streaming browser on the phone, mainly for signing in. -->
+        <activity
+            android:name=".BrowserActivity"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize"
+            android:exported="false"
+            android:label="carBuddy browser" />
 
         <!-- Invisible; exists only to show the screen-capture prompt. -->
         <activity

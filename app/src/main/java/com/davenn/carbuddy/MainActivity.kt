@@ -65,6 +65,13 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 
+    @Deprecated("Back is handled here so the car screen can step back first")
+    override fun onBackPressed() {
+        if (carScreen?.back() == true) return
+        @Suppress("DEPRECATION")
+        super.onBackPressed()
+    }
+
     /** True when Android Auto is showing this activity on the car's display. */
     private fun onCarScreen(): Boolean {
         val d = if (Build.VERSION.SDK_INT >= 30) display else {
@@ -144,6 +151,18 @@ class MainActivity : Activity() {
         column.addView(restrictedButton, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
 
         column.addView(TextView(this).apply {
+            text = "Streaming: sign in here once and the car's Streaming screen stays signed in. Phone screen: " +
+                StreamingBrowser.displaySummary(window.decorView.display ?: windowManager.defaultDisplay) + "."
+            textSize = 16f
+            setTextColor(GREY)
+            setPadding(0, dp(16), 0, 0)
+        })
+        column.addView(Button(this).apply {
+            text = "Sign in to streaming sites"
+            setOnClickListener { startActivity(Intent(this@MainActivity, BrowserActivity::class.java)) }
+        }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+
+        column.addView(TextView(this).apply {
             text = SETUP
             textSize = 14f
             setPadding(0, dp(20), 0, 0)
@@ -166,12 +185,12 @@ class MainActivity : Activity() {
 2. Optional, for touch: tap "Turn on touch control", pick carBuddy and switch it on. If Android says it is a restricted setting, use the button below it, then ⋮ → Allow restricted settings, and try again.
 
 Each time
-While parked, open carBuddy from Android Auto's launcher (it may be with games or parked apps), press Start, and tap Start now on the phone.
+While parked, open carBuddy from Android Auto's launcher (it may be with games or parked apps). Choose Mirror phone (then tap Start now on the phone) or Streaming.
 
 Tips
 • Turn the phone sideways (auto-rotate on) to fill the car screen.
 • Use the apps button on the car screen to open phone apps; they open on the phone and show in the mirror.
 • Parked only: Android Auto closes parked apps when the car moves.
-• Netflix, Disney+ and similar apps show black: they block screen capture."""
+• Netflix, Disney+ and similar apps show black in the mirror: they block screen capture. Use Streaming for those instead."""
     }
 }

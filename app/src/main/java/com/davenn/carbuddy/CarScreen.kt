@@ -16,7 +16,6 @@ import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.BaseAdapter
-import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -28,10 +27,13 @@ import android.widget.TextView
  * carBuddy's screen on the car display.
  *
  * Android Auto runs carBuddy as a "parked app" on its own display at the car
- * screen's size. This screen fills it with a SurfaceView that [Mirror] draws the
- * phone's screen into, scaled to fit and centred. Touches on the picture are
- * mapped to phone coordinates and replayed by [TouchService]; buttons down the
- * sides sit in the black bars a portrait phone leaves.
+ * screen's size. The home panel offers two things:
+ *  - Mirror phone: a SurfaceView that [Mirror] draws the phone's screen into,
+ *    scaled to fit and centred. Touches on the picture are mapped to phone
+ *    coordinates and replayed by [TouchService]; buttons down the side sit in the
+ *    black bars a portrait phone leaves.
+ *  - Streaming: [StreamingBrowser], whose web players can show protected video
+ *    that a mirror can't.
  */
 class CarScreen(private val activity: Activity) {
 
@@ -41,6 +43,9 @@ class CarScreen(private val activity: Activity) {
     private lateinit var appsPanel: LinearLayout
     private lateinit var controls: LinearLayout
     private lateinit var notice: TextView
+
+    private var browser: StreamingBrowser? = null
+    private var browserView: View? = null
 
     private var viewW = 0
     private var viewH = 0
@@ -82,23 +87,26 @@ class CarScreen(private val activity: Activity) {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
             addView(TextView(activity).apply {
-                text = "Show your phone on this screen"
-                textSize = 26f
+                text = "carBuddy"
+                textSize = 30f
                 setTextColor(Color.WHITE)
                 gravity = Gravity.CENTER
             })
             addView(TextView(activity).apply {
-                text = "Press Start, then tap Start now on your phone."
-                textSize = 18f
-                setTextColor(Color.LTGRAY)
+                text = StreamingBrowser.displaySummary(carDisplay())
+                textSize = 15f
+                setTextColor(Color.GRAY)
                 gravity = Gravity.CENTER
-                setPadding(0, dp(8), 0, dp(20))
+                setPadding(0, dp(6), 0, dp(24))
             })
-            addView(Button(activity).apply {
-                text = "Start"
-                textSize = 22f
-                setOnClickListener { ProjectionActivity.request(activity) }
-            }, LinearLayout.LayoutParams(dp(260), WRAP_CONTENT))
+            addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                addView(choice("Mirror phone", "Then tap Start now on your phone") {
+                    ProjectionActivity.request(activity)
+                })
+                addView(choice("Streaming", "Netflix, Disney+ and more in a browser") { openBrowser() })
+            })
         }
         root.addView(startPanel, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
@@ -121,6 +129,7 @@ class CarScreen(private val activity: Activity) {
     }
 
     fun destroy() {
+        browser?.destroy()
         Mirror.removeListener(mirrorListener)
         // carBuddy's car screen is gone (car disconnected or app closed): stop
         // capturing so the phone is not left mirroring with its screen held on.
@@ -129,9 +138,39 @@ class CarScreen(private val activity: Activity) {
 
     private fun refresh() {
         val on = Mirror.isRunning
-        startPanel.visibility = if (on) View.GONE else View.VISIBLE
+        startPanel.visibility = if (on || browser != null) View.GONE else View.VISIBLE
         controls.visibility = if (on) View.VISIBLE else View.GONE
         if (!on) appsPanel.visibility = View.GONE
+    }
+
+    /** Handles a back press on the car screen; false when there is nothing to undo. */
+    fun back(): Boolean {
+        browser?.let { b ->
+            if (!b.back()) closeBrowser()
+            return true
+        }
+        if (appsPanel.visibility == View.VISIBLE) { showApps(false); return true }
+        return false
+    }
+
+    // -------------------------------------------------------------- streaming
+
+    private fun openBrowser() {
+        if (browser != null) return
+        val b = StreamingBrowser(activity) { closeBrowser() }
+        val v = b.create()
+        browser = b
+        browserView = v
+        root.addView(v, root.indexOfChild(notice), FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        refresh()
+    }
+
+    private fun closeBrowser() {
+        browser?.destroy()
+        browserView?.let { root.removeView(it) }
+        browser = null
+        browserView = null
+        refresh()
     }
 
     // ------------------------------------------------------------------ touch
@@ -278,6 +317,35 @@ class CarScreen(private val activity: Activity) {
         scaleType = ImageView.ScaleType.FIT_CENTER
         setOnClickListener { onClick() }
         layoutParams = LinearLayout.LayoutParams(dp(64), dp(64)).also { it.setMargins(0, dp(6), 0, dp(6)) }
+    }
+
+    /** A big home-panel button with a caption under it. */
+    private fun choice(title: String, caption: String, onClick: () -> Unit) = LinearLayout(activity).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER
+        setPadding(dp(16), dp(16), dp(16), dp(16))
+        background = rounded(0xFF2A2A2A.toInt(), dp(20).toFloat())
+        isClickable = true
+        setOnClickListener { onClick() }
+        addView(TextView(activity).apply {
+            text = title
+            textSize = 26f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+        })
+        addView(TextView(activity).apply {
+            text = caption
+            textSize = 15f
+            setTextColor(Color.LTGRAY)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(6), 0, 0)
+        })
+        layoutParams = LinearLayout.LayoutParams(dp(320), dp(150)).also { it.setMargins(dp(12), 0, dp(12), 0) }
+    }
+
+    private fun carDisplay(): Display? = if (android.os.Build.VERSION.SDK_INT >= 30) activity.display else {
+        @Suppress("DEPRECATION")
+        activity.windowManager.defaultDisplay
     }
 
     private fun rounded(color: Int, radius: Float = dp(12).toFloat()) = GradientDrawable().apply {

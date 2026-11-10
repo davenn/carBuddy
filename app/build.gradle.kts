@@ -13,8 +13,8 @@ android {
         // Android Auto's parked apps themselves need Android 15+ on the phone.
         minSdk = 29
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3"
+        versionCode = 4
+        versionName = "0.4"
     }
 
     signingConfigs {
@@ -52,3 +52,6 @@ kotlin {
     }
 }
 
+dependencies {
+    implementation("androidx.webkit:webkit:1.18.0")
+}
